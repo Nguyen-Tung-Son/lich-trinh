@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lịch trình</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4a90e2">
+    <link rel="icon" href="icon-192.png">
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 20px 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f5f5f5;
+            font-family: Arial, sans-serif;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 94%;
+            table-layout: fixed;
+            background: white;
+        }
+
+        th, td {
+            border: 1px solid #999;
+            height: 36px;
+            padding: 3px;
+            text-align: center;
+            overflow-wrap: anywhere;
+        }
+
+        th { background: #eeeeee; }
+
+        th:nth-child(1) { width: 20%; }
+        th:nth-child(2) { width: 50%; }
+        th:nth-child(3) { width: 30%; }
+
+        td.cell {
+            padding: 0;
+            text-align: left;
+        }
+
+        .wrap {
+            display: flex;
+            align-items: stretch;
+            min-height: 36px;
+        }
+
+        .handle {
+            flex: 0 0 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+            background: #fafafa;
+            border-right: 1px solid #ddd;
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+
+        .handle:active { cursor: grabbing; }
+
+        .content {
+            flex: 1;
+            padding: 3px 6px;
+            min-height: 36px;
+            cursor: text;
+            outline: none;
+        }
+
+        .content:focus {
+            outline: 2px solid #4a90e2;
+            outline-offset: -2px;
+            background: #f0f7ff;
+        }
+
+        td.cell.dragging { opacity: 0.4; }
+        td.cell.over { background: #d9ecff; outline: 2px dashed #4a90e2; outline-offset: -2px; }
+    </style>
+</head>
+<body>
+    <table>
+        <thead>
+            <tr>
+                <th>Giờ</th>
+                <th>Công việc</th>
+                <th>Dự phòng</th>
+            </tr>
+        </thead>
+        <tbody id="schedule"></tbody>
+    </table>
+
+    <script>
+        const KEY = "schedule-data-v1";
+        const schedule = document.getElementById("schedule");
+
+        // Đọc dữ liệu đã lưu
+        let saved = [];
+        try { saved = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+
+        function cellHTML(text) {
+            return `<td class="cell"><div class="wrap">
+                <span class="handle" title="Kéo để hoán đổi">⠿</span>
+                <div class="content" contenteditable="true"></div>
+            </div></td>`;
+        }
+
+        for (let hour = 0; hour < 24; hour++) {
+            const row = document.createElement("tr");
+            row.innerHTML = `<td>${String(hour).padStart(2, "0")}h</td>` + cellHTML() + cellHTML();
+            const contents = row.querySelectorAll(".content");
+            contents[0].textContent = (saved[hour] && saved[hour][0]) || "";
+            contents[1].textContent = (saved[hour] && saved[hour][1]) || "";
+            schedule.appendChild(row);
+        }
+
+        // Lưu vào localStorage
+        function save() {
+            const data = [...schedule.rows].map(r => {
+                const c = r.querySelectorAll(".content");
+                return [c[0].innerText.replace(/\n$/, ""), c[1].innerText.replace(/\n$/, "")];
+            });
+            try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+        }
+
+        schedule.addEventListener("input", save);
+
+        // Dán chỉ lấy chữ thường
+        schedule.addEventListener("paste", e => {
+            if (!e.target.classList.contains("content")) return;
+            e.preventDefault();
+            const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+            document.execCommand("insertText", false, text);
+        });
+
+        // Kéo thả hoán đổi (chuột + cảm ứng)
+        let dragCell = null;
+        let overCell = null;
+
+        schedule.addEventListener("pointerdown", e => {
+            const handle = e.target.closest(".handle");
+            if (!handle) return;
+            e.preventDefault();
+            dragCell = handle.closest("td.cell");
+            dragCell.classList.add("dragging");
+            handle.setPointerCapture(e.pointerId);
+        });
+
+        schedule.addEventListener("pointermove", e => {
+            if (!dragCell) return;
+            const el = document.elementFromPoint(e.clientX, e.clientY);
+            const target = el ? el.closest("td.cell") : null;
+            if (overCell && overCell !== target) overCell.classList.remove("over");
+            overCell = target && target !== dragCell ? target : null;
+            if (overCell) overCell.classList.add("over");
+        });
+
+        function endDrag() {
+            if (!dragCell) return;
+            if (overCell) {
+                const a = dragCell.querySelector(".content");
+                const b = overCell.querySelector(".content");
+                const tmp = a.textContent;
+                a.textContent = b.textContent;
+                b.textContent = tmp;
+                save();
+            }
+            dragCell.classList.remove("dragging");
+            if (overCell) overCell.classList.remove("over");
+            dragCell = overCell = null;
+        }
+
+        schedule.addEventListener("pointerup", endDrag);
+        schedule.addEventListener("pointercancel", endDrag);
+
+        // Đăng ký service worker để chạy offline và cài được như app
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("sw.js").catch(() => {});
+            });
+        }
+    </script>
+</body>
+</html>
