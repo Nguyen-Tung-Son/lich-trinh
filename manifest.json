@@ -1,6 +1,6 @@
 {
-  "name": "Lịch trình",
-  "short_name": "Lịch trình",
+  "name": "Object 101 - Lịch trình",
+  "short_name": "Object 101 - Lịch trình",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
