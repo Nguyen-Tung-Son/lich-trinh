@@ -53,13 +53,15 @@
             min-height: 36px;
         }
 
+        tbody td { background: var(--row, transparent); }
+
         .handle {
             flex: 0 0 22px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #888;
-            background: #fafafa;
+            color: #666;
+            background: rgba(255, 255, 255, 0.45);
             border-right: 1px solid #ddd;
             cursor: grab;
             user-select: none;
@@ -68,12 +70,18 @@
 
         .handle:active { cursor: grabbing; }
 
+        .handle.locked { cursor: not-allowed; font-size: 11px; }
+
         .content {
             flex: 1;
+            min-width: 0;
             padding: 3px 6px;
             min-height: 36px;
             cursor: text;
             outline: none;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            white-space: pre-wrap;
         }
 
         .content:focus {
@@ -106,16 +114,44 @@
         let saved = [];
         try { saved = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
 
-        function cellHTML(text) {
+        // Màu cố định theo giờ. Hàng đỏ bị khóa: chỉ nhập chữ, không kéo thả.
+        // R = đỏ, Y = vàng, G = xanh lá
+        const COLOR_VALUES = { R: "#ffb3b3", Y: "#fff3a3", G: "#b8e6b8" };
+        const YELLOW_HOURS = [7, 9, 10, 14, 15, 16, 17, 19];
+        const GREEN_HOURS = [6, 8, 11, 12, 13, 18, 20, 21];
+        const COLOR_KEY = "schedule-colors-v1";
+
+        let savedColors = [];
+        try { savedColors = JSON.parse(localStorage.getItem(COLOR_KEY)) || []; } catch (e) {}
+
+        function initialColor(hour) {
+            if (YELLOW_HOURS.includes(hour) || GREEN_HOURS.includes(hour)) {
+                const s = savedColors[hour];
+                if (s === "Y" || s === "G") return s; // màu đã bị hoán đổi trước đó
+                return YELLOW_HOURS.includes(hour) ? "Y" : "G";
+            }
+            return "R"; // 22h - 5h luôn đỏ
+        }
+
+        function setRowColor(row, key) {
+            row.dataset.color = key;
+            row.style.setProperty("--row", COLOR_VALUES[key]);
+        }
+
+        function cellHTML(locked) {
             return `<td class="cell"><div class="wrap">
-                <span class="handle" title="Kéo để hoán đổi">⠿</span>
+                <span class="handle${locked ? " locked" : ""}" title="${locked ? "Đã khóa" : "Kéo để hoán đổi"}">${locked ? "🔒" : "⠿"}</span>
                 <div class="content" contenteditable="true"></div>
             </div></td>`;
         }
 
         for (let hour = 0; hour < 24; hour++) {
+            const colorKey = initialColor(hour);
+            const locked = colorKey === "R";
             const row = document.createElement("tr");
-            row.innerHTML = `<td>${String(hour).padStart(2, "0")}h</td>` + cellHTML() + cellHTML();
+            setRowColor(row, colorKey);
+            if (locked) row.dataset.locked = "1";
+            row.innerHTML = `<td>${String(hour).padStart(2, "0")}h</td>` + cellHTML(locked) + cellHTML(locked);
             const contents = row.querySelectorAll(".content");
             contents[0].textContent = (saved[hour] && saved[hour][0]) || "";
             contents[1].textContent = (saved[hour] && saved[hour][1]) || "";
@@ -129,6 +165,7 @@
                 return [c[0].innerText.replace(/\n$/, ""), c[1].innerText.replace(/\n$/, "")];
             });
             try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+            try { localStorage.setItem(COLOR_KEY, JSON.stringify([...schedule.rows].map(r => r.dataset.color))); } catch (e) {}
         }
 
         schedule.addEventListener("input", save);
@@ -147,7 +184,7 @@
 
         schedule.addEventListener("pointerdown", e => {
             const handle = e.target.closest(".handle");
-            if (!handle) return;
+            if (!handle || handle.closest("tr").dataset.locked) return;
             e.preventDefault();
             dragCell = handle.closest("td.cell");
             dragCell.classList.add("dragging");
@@ -157,7 +194,8 @@
         schedule.addEventListener("pointermove", e => {
             if (!dragCell) return;
             const el = document.elementFromPoint(e.clientX, e.clientY);
-            const target = el ? el.closest("td.cell") : null;
+            let target = el ? el.closest("td.cell") : null;
+            if (target && target.closest("tr").dataset.locked) target = null; // không thả vào hàng đỏ
             if (overCell && overCell !== target) overCell.classList.remove("over");
             overCell = target && target !== dragCell ? target : null;
             if (overCell) overCell.classList.add("over");
@@ -171,6 +209,16 @@
                 const tmp = a.textContent;
                 a.textContent = b.textContent;
                 b.textContent = tmp;
+
+                // Đổi giữa 2 ô cột Công việc (cellIndex 1) thì 2 hàng đổi màu cho nhau.
+                // Nếu có ô Dự phòng tham gia thì màu giữ nguyên.
+                const rowA = dragCell.closest("tr"), rowB = overCell.closest("tr");
+                if (dragCell.cellIndex === 1 && overCell.cellIndex === 1 &&
+                    rowA.dataset.color !== rowB.dataset.color) {
+                    const colorA = rowA.dataset.color;
+                    setRowColor(rowA, rowB.dataset.color);
+                    setRowColor(rowB, colorA);
+                }
                 save();
             }
             dragCell.classList.remove("dragging");
